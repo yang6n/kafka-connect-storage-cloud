@@ -52,18 +52,18 @@ import io.confluent.connect.storage.partitioner.Partitioner;
 import io.confluent.connect.storage.partitioner.PartitionerConfig;
 
 public class S3SinkTask extends SinkTask {
-  private static final Logger log = LoggerFactory.getLogger(S3SinkTask.class);
+  protected static final Logger log = LoggerFactory.getLogger(S3SinkTask.class);
 
-  private S3SinkConnectorConfig connectorConfig;
-  private String url;
-  private long timeoutMs;
-  private S3Storage storage;
-  private final Map<TopicPartition, TopicPartitionWriter> topicPartitionWriters;
-  private Partitioner<?> partitioner;
-  private Format<S3SinkConnectorConfig, String> format;
-  private RecordWriterProvider<S3SinkConnectorConfig> writerProvider;
-  private final Time time;
-  private ErrantRecordReporter reporter;
+  protected S3SinkConnectorConfig connectorConfig;
+  protected String url;
+  protected long timeoutMs;
+  protected S3Storage storage;
+  protected final Map<TopicPartition, TopicPartitionWriter> topicPartitionWriters;
+  protected Partitioner<?> partitioner;
+  protected Format<S3SinkConnectorConfig, String> format;
+  protected RecordWriterProvider<S3SinkConnectorConfig> writerProvider;
+  protected final Time time;
+  protected ErrantRecordReporter reporter;
 
   /**
    * No-arg constructor. Used by Connect framework.
@@ -156,7 +156,7 @@ public class S3SinkTask extends SinkTask {
   }
 
   @SuppressWarnings("unchecked")
-  private Format<S3SinkConnectorConfig, String> newFormat(String formatClassConfig)
+  protected Format<S3SinkConnectorConfig, String> newFormat(String formatClassConfig)
       throws ClassNotFoundException, IllegalAccessException, InstantiationException,
              InvocationTargetException, NoSuchMethodException {
     Class<Format<S3SinkConnectorConfig, String>> formatClass =
@@ -189,7 +189,7 @@ public class S3SinkTask extends SinkTask {
         valueWriterProvider, keyWriterProvider, headerWriterProvider);
   }
 
-  private Partitioner<?> newPartitioner(S3SinkConnectorConfig config)
+  protected Partitioner<?> newPartitioner(S3SinkConnectorConfig config)
       throws ClassNotFoundException, IllegalAccessException, InstantiationException {
 
     @SuppressWarnings("unchecked")
@@ -261,7 +261,7 @@ public class S3SinkTask extends SinkTask {
     }
   }
 
-  private boolean maybeSkipOnNullValue(SinkRecord record) {
+  protected boolean maybeSkipOnNullValue(SinkRecord record) {
     if (record.value() == null) {
       if (connectorConfig.nullValueBehavior()
           .equalsIgnoreCase(OutputWriteBehavior.IGNORE.toString())) {
@@ -340,7 +340,7 @@ public class S3SinkTask extends SinkTask {
     return topicPartitionWriters.get(tp);
   }
 
-  private TopicPartitionWriter newTopicPartitionWriter(TopicPartition tp) {
+  protected TopicPartitionWriter newTopicPartitionWriter(TopicPartition tp) {
     return new TopicPartitionWriter(
         tp,
         storage,

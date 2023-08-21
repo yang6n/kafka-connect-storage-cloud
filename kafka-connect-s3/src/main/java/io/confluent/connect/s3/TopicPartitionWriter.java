@@ -22,6 +22,7 @@ import io.confluent.connect.s3.util.RetryUtil;
 import io.confluent.connect.s3.util.TombstoneTimestampExtractor;
 import io.confluent.connect.storage.errors.PartitionException;
 import io.confluent.connect.storage.schema.SchemaCompatibilityResult;
+import io.confluent.connect.storage.schema.SchemaIncompatibilityType;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.errors.ConnectException;
@@ -62,49 +63,49 @@ import static io.confluent.connect.s3.S3SinkConnectorConfig.S3_RETRY_BACKOFF_CON
 
 public class TopicPartitionWriter {
 
-  private static final Logger log = LoggerFactory.getLogger(TopicPartitionWriter.class);
+  protected static final Logger log = LoggerFactory.getLogger(TopicPartitionWriter.class);
 
-  private final Map<String, String> commitFiles;
-  private final Map<String, RecordWriter> writers;
-  private final Map<String, Schema> currentSchemas;
-  private final TopicPartition tp;
-  private final S3Storage storage;
-  private final Partitioner<?> partitioner;
-  private TimestampExtractor timestampExtractor;
-  private String topicsDir;
-  private State state;
-  private final Queue<SinkRecord> buffer;
-  private final SinkTaskContext context;
-  private final boolean isTaggingEnabled;
-  private final boolean ignoreTaggingErrors;
-  private int recordCount;
-  private final int flushSize;
-  private final long rotateIntervalMs;
-  private final long rotateScheduleIntervalMs;
-  private long nextScheduledRotation;
-  private long currentOffset;
-  private Long currentTimestamp;
-  private String currentEncodedPartition;
-  private Long baseRecordTimestamp;
-  private Long offsetToCommit;
-  private final RecordWriterProvider<S3SinkConnectorConfig> writerProvider;
-  private final Map<String, Long> startOffsets;
-  private final Map<String, Long> endOffsets;
-  private final Map<String, Long> recordCounts;
-  private long timeoutMs;
-  private long failureTime;
-  private final StorageSchemaCompatibility compatibility;
-  private final String extension;
-  private final String zeroPadOffsetFormat;
-  private final String dirDelim;
-  private final String fileDelim;
-  private final Time time;
-  private DateTimeZone timeZone;
-  private final S3SinkConnectorConfig connectorConfig;
-  private static final Time SYSTEM_TIME = new SystemTime();
-  private ErrantRecordReporter reporter;
+  protected final Map<String, String> commitFiles;
+  protected final Map<String, RecordWriter> writers;
+  protected final Map<String, Schema> currentSchemas;
+  protected final TopicPartition tp;
+  protected final S3Storage storage;
+  protected final Partitioner<?> partitioner;
+  protected TimestampExtractor timestampExtractor;
+  protected String topicsDir;
+  protected State state;
+  protected final Queue<SinkRecord> buffer;
+  protected final SinkTaskContext context;
+  protected final boolean isTaggingEnabled;
+  protected final boolean ignoreTaggingErrors;
+  protected int recordCount;
+  protected final int flushSize;
+  protected final long rotateIntervalMs;
+  protected final long rotateScheduleIntervalMs;
+  protected long nextScheduledRotation;
+  protected long currentOffset;
+  protected Long currentTimestamp;
+  protected String currentEncodedPartition;
+  protected Long baseRecordTimestamp;
+  protected Long offsetToCommit;
+  protected final RecordWriterProvider<S3SinkConnectorConfig> writerProvider;
+  protected final Map<String, Long> startOffsets;
+  protected final Map<String, Long> endOffsets;
+  protected final Map<String, Long> recordCounts;
+  protected long timeoutMs;
+  protected long failureTime;
+  protected final StorageSchemaCompatibility compatibility;
+  protected final String extension;
+  protected final String zeroPadOffsetFormat;
+  protected final String dirDelim;
+  protected final String fileDelim;
+  protected final Time time;
+  protected DateTimeZone timeZone;
+  protected final S3SinkConnectorConfig connectorConfig;
+  protected static final Time SYSTEM_TIME = new SystemTime();
+  protected ErrantRecordReporter reporter;
 
-  private final FileRotationTracker fileRotationTracker;
+  protected final FileRotationTracker fileRotationTracker;
 
   public TopicPartitionWriter(TopicPartition tp,
                               S3Storage storage,
@@ -190,13 +191,13 @@ public class TopicPartitionWriter {
     setNextScheduledRotation();
   }
 
-  private enum State {
+  protected enum State {
     WRITE_STARTED,
     WRITE_PARTITION_PAUSED,
     SHOULD_ROTATE,
     FILE_COMMITTED;
 
-    private static final State[] VALS = values();
+    protected static final State[] VALS = values();
 
     public State next() {
       return VALS[(ordinal() + 1) % VALS.length];
@@ -231,7 +232,7 @@ public class TopicPartitionWriter {
   }
 
   @SuppressWarnings("fallthrough")
-  private void executeState(long now) {
+  protected void executeState(long now) {
     switch (state) {
       case WRITE_STARTED:
         pause();
@@ -290,7 +291,7 @@ public class TopicPartitionWriter {
    * Check if we should rotate the file (schema change, time-based).
    * @returns true if rotation is being performed, false otherwise
    */
-  private boolean checkRotationOrAppend(
+  protected boolean checkRotationOrAppend(
       SinkRecord record,
       Schema currentValueSchema,
       Schema valueSchema,
@@ -305,13 +306,17 @@ public class TopicPartitionWriter {
       return true;
     }
 
+    log.info("compatibility: {}", compatibility);
     SchemaCompatibilityResult shouldChangeSchema =
         compatibility.shouldChangeSchema(record, null, currentValueSchema);
+    checkSchema(record.valueSchema(), currentValueSchema);
+    log.info("shouldChangeSchema: {}, recordCount: {}", shouldChangeSchema.getSchemaIncompatibilityType(), recordCount);
+
     if (shouldChangeSchema.isInCompatible() && recordCount > 0) {
       fileRotationTracker.incrementRotationBySchemaChangeCount(encodedPartition,
           shouldChangeSchema.getSchemaIncompatibilityType());
       // This branch is never true for the first record read by this TopicPartitionWriter
-      log.trace(
+      log.info(
           "Incompatible change of schema detected for record '{}' with encoded partition "
           + "'{}' and current offset: '{}'",
           record,
@@ -345,7 +350,23 @@ public class TopicPartitionWriter {
     return false;
   }
 
-  private void commitOnTimeIfNoData(long now) {
+  protected void checkSchema(Schema valueSchema, Schema currentSchema) {
+    if (currentSchema == null && valueSchema == null) {
+      log.info("checkSchema - 1");
+    } else if (currentSchema == valueSchema) {
+      log.info("checkSchema - 2");
+    } else if (currentSchema != null && valueSchema != null) {
+      if ((valueSchema.version() == null || currentSchema.version() == null) /*&& this != NONE*/) {
+        log.info("checkSchema - 3");
+      } else {
+        log.info("checkSchema - 4");
+      }
+    } else {
+      log.info("checkSchema - 5");
+    }
+  }
+
+  protected void commitOnTimeIfNoData(long now) {
     if (buffer.isEmpty()) {
       // committing files after waiting for rotateIntervalMs time but less than flush.size
       // records available
@@ -364,7 +385,7 @@ public class TopicPartitionWriter {
     }
   }
 
-  private void resetExpiredScheduledRotationIfNoPendingRecords(long now) {
+  protected void resetExpiredScheduledRotationIfNoPendingRecords(long now) {
     if (recordCount == 0 && shouldApplyScheduledRotation(now)) {
       setNextScheduledRotation();
     }
@@ -405,25 +426,25 @@ public class TopicPartitionWriter {
     return compatibility;
   }
 
-  private Long minStartOffset() {
+  protected Long minStartOffset() {
     Optional<Long> minStartOffset = startOffsets.values().stream()
         .min(Comparator.comparing(Long::valueOf));
     return minStartOffset.isPresent() ? minStartOffset.get() : null;
   }
 
-  private String getDirectoryPrefix(String encodedPartition) {
+  protected String getDirectoryPrefix(String encodedPartition) {
     return partitioner.generatePartitionedPath(tp.topic(), encodedPartition);
   }
 
-  private void nextState() {
+  protected void nextState() {
     state = state.next();
   }
 
-  private void setState(State state) {
+  protected void setState(State state) {
     this.state = state;
   }
 
-  private boolean rotateOnTime(String encodedPartition, Long recordTimestamp, long now) {
+  protected boolean rotateOnTime(String encodedPartition, Long recordTimestamp, long now) {
     if (recordCount <= 0) {
       return false;
     }
@@ -432,7 +453,7 @@ public class TopicPartitionWriter {
         && timestampExtractor != null
         && (
         recordTimestamp - baseRecordTimestamp >= rotateIntervalMs
-            || !encodedPartition.equals(currentEncodedPartition)
+//            || !encodedPartition.equals(currentEncodedPartition)
     );
 
     log.trace(
@@ -463,7 +484,7 @@ public class TopicPartitionWriter {
     return periodicRotation || shouldApplyScheduledRotation(now);
   }
 
-  private boolean shouldApplyScheduledRotation(long now) {
+  protected boolean shouldApplyScheduledRotation(long now) {
     boolean scheduledRotation = rotateScheduleIntervalMs > 0 && now >= nextScheduledRotation;
     log.trace(
         "Should apply scheduled rotation for topic-partition '{}':"
@@ -478,7 +499,7 @@ public class TopicPartitionWriter {
     return scheduledRotation;
   }
 
-  private void setNextScheduledRotation() {
+  protected void setNextScheduledRotation() {
     if (rotateScheduleIntervalMs > 0) {
       long now = time.milliseconds();
       nextScheduledRotation = DateTimeUtils.getNextTimeAdjustedByDay(
@@ -501,7 +522,7 @@ public class TopicPartitionWriter {
     }
   }
 
-  private boolean rotateOnSize() {
+  protected boolean rotateOnSize() {
     boolean messageSizeRotation = recordCount >= flushSize;
     log.trace("Should apply size-based rotation for topic-partition '{}':"
             + " (count {} >= flush size {})? {}",
@@ -513,17 +534,17 @@ public class TopicPartitionWriter {
     return messageSizeRotation;
   }
 
-  private void pause() {
+  protected void pause() {
     log.trace("Pausing writer for topic-partition '{}'", tp);
     context.pause(tp);
   }
 
-  private void resume() {
+  protected void resume() {
     log.trace("Resuming writer for topic-partition '{}'", tp);
     context.resume(tp);
   }
 
-  private RecordWriter newWriter(SinkRecord record, String encodedPartition)
+  protected RecordWriter newWriter(SinkRecord record, String encodedPartition)
       throws ConnectException {
     String commitFilename = getCommitFilename(encodedPartition);
     log.debug(
@@ -536,7 +557,7 @@ public class TopicPartitionWriter {
     return writer;
   }
 
-  private String getCommitFilename(String encodedPartition) {
+  protected String getCommitFilename(String encodedPartition) {
     String commitFile;
     if (commitFiles.containsKey(encodedPartition)) {
       commitFile = commitFiles.get(encodedPartition);
@@ -549,14 +570,14 @@ public class TopicPartitionWriter {
     return commitFile;
   }
 
-  private String fileKey(String topicsPrefix, String keyPrefix, String name) {
+  protected String fileKey(String topicsPrefix, String keyPrefix, String name) {
     String suffix = keyPrefix + dirDelim + name;
     return StringUtils.isNotBlank(topicsPrefix)
            ? topicsPrefix + dirDelim + suffix
            : suffix;
   }
 
-  private String fileKeyToCommit(String dirPrefix, long startOffset) {
+  protected String fileKeyToCommit(String dirPrefix, long startOffset) {
     String name = tp.topic()
                       + fileDelim
                       + tp.partition()
@@ -566,7 +587,7 @@ public class TopicPartitionWriter {
     return fileKey(topicsDir, dirPrefix, name);
   }
 
-  private boolean writeRecord(SinkRecord record, String encodedPartition) {
+  protected boolean writeRecord(SinkRecord record, String encodedPartition) {
     RecordWriter writer = writers.get(encodedPartition);
     long currentOffsetIfSuccessful = record.kafkaOffset();
     boolean shouldRemoveWriter = false;
@@ -632,7 +653,7 @@ public class TopicPartitionWriter {
     return true;
   }
 
-  private void commitFiles() {
+  protected void commitFiles() {
     for (Map.Entry<String, String> entry : commitFiles.entrySet()) {
       String encodedPartition = entry.getKey();
       commitFile(encodedPartition);
@@ -657,7 +678,7 @@ public class TopicPartitionWriter {
     log.info("Files committed to S3. Target commit offset for {} is {}", tp, offsetToCommit);
   }
 
-  private void commitFile(String encodedPartition) {
+  protected void commitFile(String encodedPartition) {
     if (!startOffsets.containsKey(encodedPartition)) {
       log.warn("Tried to commit file with missing starting offset partition: {}. Ignoring.");
       return;
@@ -672,7 +693,7 @@ public class TopicPartitionWriter {
     }
   }
 
-  private void tagFile(String encodedPartition, String s3ObjectPath) {
+  protected void tagFile(String encodedPartition, String s3ObjectPath) {
     Long startOffset = startOffsets.get(encodedPartition);
     Long endOffset = endOffsets.get(encodedPartition);
     Long recordCount = recordCounts.get(encodedPartition);
