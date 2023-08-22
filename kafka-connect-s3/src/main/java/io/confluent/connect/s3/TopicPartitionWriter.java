@@ -43,6 +43,7 @@ import java.util.LinkedList;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.stream.Collectors;
 
 import io.confluent.common.utils.SystemTime;
 import io.confluent.common.utils.Time;
@@ -364,6 +365,17 @@ public class TopicPartitionWriter {
     } else {
       log.info("checkSchema - 5");
     }
+
+    log.info("valueSchema: ");
+    printSchema(valueSchema);
+
+    log.info("currentSchema: ");
+    printSchema(currentSchema);
+  }
+
+  protected void printSchema(Schema schema) {
+    log.info("schema - type: {}, version: {}, fields: {}, parameters: {} - {}",
+            schema.type(), schema.version(), String.join(",", schema.fields().stream().map(field -> field.toString()).collect(Collectors.toList())), schema.parameters(), schema);
   }
 
   protected void commitOnTimeIfNoData(long now) {
